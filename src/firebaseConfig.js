@@ -5,6 +5,15 @@ import { getStorage } from 'firebase/storage'
 
 const env = import.meta.env
 
+export const adminUids = (env.VITE_ADMIN_UIDS || '')
+  .split(',')
+  .map((uid) => uid.trim())
+  .filter(Boolean)
+
+export function isAdmin(user) {
+  return Boolean(user?.uid && adminUids.includes(user.uid))
+}
+
 export const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,

@@ -1,6 +1,6 @@
 import './style.css'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
-import { auth, googleProvider, isFirebaseConfigured } from './firebaseConfig.js'
+import { auth, googleProvider, isAdmin, isFirebaseConfigured } from './firebaseConfig.js'
 
 document.querySelector('#app').innerHTML = `
   <header class="site-header">
@@ -20,12 +20,12 @@ document.querySelector('#app').innerHTML = `
         <p class="intro">공부와 학교생활을 천천히 돌아보고, 지금 내 마음을 들여다봐요.<br class="desktop-break" /> 정답은 없어요. 편안한 속도로 시작해도 괜찮아요.</p>
         <div class="login-actions" id="login-actions">
           <button class="button button-primary google-login-button" id="google-login-button" type="button"><span class="google-g" aria-hidden="true">G</span> Google로 로그인</button>
-          <p class="login-hint" id="login-hint" role="status" aria-live="polite">로그인하면 학생 활동과 교사 대시보드를 이용할 수 있어요.</p>
+          <p class="login-hint" id="login-hint" role="status" aria-live="polite">로그인하면 학생 활동을 이용할 수 있어요. 교사 모니터링은 관리자에게만 표시돼요.</p>
         </div>
         <p class="auth-status" id="auth-status" role="status" aria-live="polite"></p>
         <div class="welcome-actions" id="welcome-actions" hidden>
           <a class="button button-primary" href="/student.html">학생 활동 시작하기 <span aria-hidden="true">→</span></a>
-          <a class="button button-secondary" href="/teacherMonitor.html">교사 대시보드 <span aria-hidden="true">↗</span></a>
+          <a class="button button-secondary" id="teacher-monitor-link" href="/teacherMonitor.html" hidden>교사 모니터링 <span aria-hidden="true">↗</span></a>
         </div>
         <p class="privacy-note"><span aria-hidden="true">♡</span> 내 마음을 안전하게 살피는 공간이에요</p>
       </div>
@@ -54,6 +54,7 @@ const loginButton = document.querySelector('#google-login-button')
 const loginHint = document.querySelector('#login-hint')
 const authStatus = document.querySelector('#auth-status')
 const activityLinks = document.querySelector('#welcome-actions')
+const teacherMonitorLink = document.querySelector('#teacher-monitor-link')
 const userLabel = document.querySelector('#user-label')
 const signOutButton = document.querySelector('#sign-out-button')
 
@@ -66,6 +67,7 @@ if (!isFirebaseConfigured) {
     const signedIn = Boolean(user)
     loginActions.hidden = signedIn
     activityLinks.hidden = !signedIn
+    teacherMonitorLink.hidden = !isAdmin(user)
     signOutButton.hidden = !signedIn
     userLabel.hidden = !signedIn
     userLabel.textContent = user?.displayName || user?.email || ''
@@ -87,7 +89,7 @@ if (!isFirebaseConfigured) {
         'auth/unauthorized-domain': '현재 사이트 주소가 Firebase 인증의 승인된 도메인에 등록되어 있는지 확인해 주세요.',
       }
       authStatus.textContent = messages[error.code] || `로그인에 실패했어요. ${error.message}`
-      loginHint.textContent = '로그인하면 학생 활동과 교사 대시보드를 이용할 수 있어요.'
+      loginHint.textContent = '로그인하면 학생 활동을 이용할 수 있어요. 교사 모니터링은 관리자에게만 표시돼요.'
       loginButton.disabled = false
     }
   })
