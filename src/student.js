@@ -150,6 +150,7 @@ if (!isFirebaseConfigured || !auth) {
 }
 
 const baseInstructions = '너는 중고등학생의 하루를 차분히 들어주는 사회정서학습 대화 도우미야. 한국어로 짧고 따뜻하게 한 번에 질문 하나만 해. 감정을 판단하거나 진단하지 말고, 조언을 서두르지 말며 학생이 말한 내용을 먼저 공감해. 오늘 학교에서 공부하며 느낀 점, 기억에 남는 순간, 힘들거나 뿌듯했던 점을 자연스럽게 묻고 사용자의 답에 맞춰 대화를 이어가. 개인 정보는 묻지 마. 학생이 위험하거나 누군가에게 해를 입을 수 있다는 말을 하면 믿을 수 있는 보호자나 선생님에게 바로 알리도록 차분하게 권해.'
+const CHAT_MODEL = 'gpt-5.4-mini'
 
 function addMessage(role, text, pending = false) {
   const message = document.createElement('article')
@@ -173,18 +174,60 @@ function setStatus(element, message, isError = false) {
 }
 
 async function requestResponse(input, instructions = baseInstructions, outputTokens = 180) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: 'gpt-5-mini', instructions, input, max_output_tokens: outputTokens }),
-  })
+  let response
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        reasoning: { effort: 'none' },
+        instructions,
+        input,
+        max_output_tokens: outputTokens,
+      }),
+    })
+  } catch {
+    throw new Error('OpenAI API에 연결하지 못했어요. 인터넷 연결이나 브라우저 네트워크 오류를 확인해 주세요.')
+  }
   const result = await response.json().catch(() => ({}))
   if (!response.ok) {
-    const message = result?.error?.message || `API 요청에 실패했어요. (HTTP ${response.status})`
-    throw new Error(message)
+    const code = result?.error?.code || result?.error?.type
+    const detail = result?.error?.message || `HTTP ${response.status}`
+    let guidance = 'API 요청에 실패했어요.'
+    if (response.status === 401) guidance = 'API 키가 유효하지 않거나 올바른 프로젝트 키가 아니에요.'
+    else if (response.status === 403) guidance = '이 API 키에 모델 사용 권한이 없어요. OpenAI 프로젝트 권한을 확인해 주세요.'
+    else if (response.status === 404) guidance = `${CHAT_MODEL} 모델을 사용할 수 없어요. 모델 접근 권한을 확인해 주세요.`
+    else if (response.status === 429 && ['insufficient_quota', 'credit_balance_exhausted'].includes(code)) guidance = 'OpenAI API 사용 한도 또는 결제 크레딧이 부족해요.'
+    else if (response.status === 429) guidance = 'OpenAI API 요청 한도에 도달했어요. 잠시 후 다시 시도해 주세요.'
+    throw new Error(`${guidance} (${detail})`)
   }
-  const text = result.output_text || result.output?.flatMap((item) => item.content || []).map((item) => item.text || '').join('').trim()
-  if (!text) throw new Error('응답을 받지 못했어요. 잠시 후 다시 시도해 주세요.')
+
+  const textParts = []
+  if (typeof result.output_text === 'string' && result.output_text.trim()) textParts.push(result.output_text.trim())
+  for (const item of Array.isArray(result.output) ? result.output : []) {
+    if (typeof item.text === 'string' && item.text.trim()) textParts.push(item.text.trim())
+    for (const content of Array.isArray(item.content) ? item.content : []) {
+      if (typeof content.text === 'string' && content.text.trim()) textParts.push(content.text.trim())
+      else if (typeof content.refusal === 'string' && content.refusal.trim()) textParts.push(content.refusal.trim())
+    }
+  }
+  const text = [...new Set(textParts)].join('\n').trim()
+  if (!text) {
+    const reason = result.incomplete_details?.reason
+    const outputTypes = Array.isArray(result.output) ? result.output.map((item) => item.type || 'type 없음').join(', ') || '없음' : '배열이 아님'
+    const contentTypes = Array.isArray(result.output)
+      ? result.output.flatMap((item) => Array.isArray(item.content) ? item.content.map((content) => content.type || 'type 없음') : []).join(', ') || '없음'
+      : '없음'
+    const diagnostic = [
+      `상태: ${result.status || '정보 없음'}`,
+      `출력 유형: ${outputTypes}`,
+      `내용 유형: ${contentTypes}`,
+      reason ? `중단 사유: ${reason}` : '',
+      result.id ? `응답 ID: ${result.id}` : '',
+    ].filter(Boolean).join(' · ')
+    throw new Error(`OpenAI 응답에 표시할 텍스트가 없어요. ${diagnostic}`)
+  }
   return text
 }
 
@@ -198,7 +241,7 @@ keyForm.addEventListener('submit', async (event) => {
   setStatus(keyStatus, 'OpenAI에 연결하고 있어요. 잠시 기다려 주세요.')
   apiKey = candidateKey
   try {
-    const greeting = await requestResponse('학생과 첫 인사를 나누고, 오늘 학교에서 기억에 남는 일이 있었는지 한 가지 질문으로 물어봐.', undefined, 100)
+    const greeting = await requestResponse('학생과 첫 인사를 나누고, 오늘 학교에서 기억에 남는 일이 있었는지 한 가지 질문으로 물어봐.', undefined, 250)
     keyForm.hidden = true
     $('.key-warning').hidden = true
     $('#key-title').textContent = '연결됐어요. 편하게 이야기해 주세요.'
